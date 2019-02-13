@@ -8,6 +8,7 @@ import (
 	"github.com/keybase/go-codec/codec"
 )
 
+// TODO do we need a full UV?
 type boxPublicSummaryTable map[keybase1.UID]keybase1.Seqno
 
 type boxPublicSummary struct {
