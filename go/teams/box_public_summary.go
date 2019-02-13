@@ -17,24 +17,24 @@ type boxPublicSummary struct {
 }
 
 func newBoxPublicSummary(d map[keybase1.UserVersion]keybase1.PerUserKey) (*boxPublicSummary, error) {
-	ret := boxPublicSummary{
-		table: make(boxPublicSummaryTable, len(d)),
-	}
+	table := make(boxPublicSummaryTable, len(d))
 	for uv, puk := range d {
-		q, found := ret.table[uv.Uid]
+		q, found := table[uv.Uid]
 		if !found || q < puk.Seqno {
-			ret.table[uv.Uid] = puk.Seqno
+			table[uv.Uid] = puk.Seqno
 		}
 	}
+	return newBoxPublicSummaryFromTable(table)
+}
 
-	// encode only ever gets called with the boxPublicSummary is being constructed. This means
-	// we don't allow mutation. Thus, we just encode it once, since if ever canonical encoding
-	// stops working, it won't matter, we'll still get consistent results.
+func newBoxPublicSummaryFromTable(table boxPublicSummaryTable) (*boxPublicSummary, error) {
+	ret := boxPublicSummary{
+		table: table,
+	}
 	err := ret.encode()
 	if err != nil {
 		return nil, err
 	}
-
 	return &ret, nil
 }
 

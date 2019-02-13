@@ -1,6 +1,7 @@
 package teams
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -72,19 +73,19 @@ func (a *SummaryAuditor) Audit(mctx libkb.MetaContext, teamID keybase1.TeamID, i
 		return AuditResult{Status: OKNotAttempted}, nil
 	}
 
-	// expectedSummary, err := calculateExpectedSummary(mctx, team)
-	// if err != nil {
-	// 	return AuditResult{}, err
-	// }
+	expectedSummary, err := calculateExpectedSummary(mctx, team)
+	if err != nil {
+		return AuditResult{}, err
+	}
 
-	// actualSummary, err := retrieveAndVerifySigchainSummary(mctx, team)
-	// if err != nil {
-	// 	return AuditResult{}, err
-	// }
+	actualSummary, err := retrieveAndVerifySigchainSummary(mctx, team)
+	if err != nil {
+		return AuditResult{}, err
+	}
 
-	// if expectedSummary.HashHexEncoded() != summaryAuditResponse.Batches[0].Hash {
-	// 	return AuditResult{}, fmt.Errorf("HASH MISMATCH!")
-	// }
+	if !bytes.Equal(expectedSummary.Hash(), actualSummary.Hash()) {
+		return AuditResult{}, fmt.Errorf("box summary hash mismatch")
+	}
 
 	return AuditResult{Status: OKNoOp}, nil
 }
@@ -154,7 +155,7 @@ func (r *summaryAuditResponse) GetAppStatus() *libkb.AppStatus {
 
 // TODO CACHE
 // TODO logging
-func retrieveAndVerifySigchainSummary(mctx libkb.MetaContext, team *Team) error {
+func retrieveAndVerifySigchainSummary(mctx libkb.MetaContext, team *Team) (boxPublicSummary, error) {
 	boxSummaryHashes := team.GetBoxSummaryHashes()
 
 	// TODO Doesnt exist on new client...
@@ -171,12 +172,12 @@ func retrieveAndVerifySigchainSummary(mctx libkb.MetaContext, team *Team) error 
 	var response summaryAuditResponse
 	err := mctx.G().API.GetDecode(a, &response)
 	if err != nil {
-		return err
+		return boxPublicSummary{}, err
 	}
 
 	// Assert server doesn't silently inject additional unchecked batches
 	if len(latestHashes) != len(response.Batches) {
-		return fmt.Errorf("expected %d box summary hashes for generation %d; got %d from server",
+		return boxPublicSummary{}, fmt.Errorf("expected %d box summary hashes for generation %d; got %d from server",
 			len(latestHashes), g, len(response.Batches))
 	}
 
@@ -188,7 +189,7 @@ func retrieveAndVerifySigchainSummary(mctx libkb.MetaContext, team *Team) error 
 		expectedHash := latestHashes[idx]
 		partialTable, err := unmarshalAndVerifyBatch(batch, expectedHash.String())
 		if err != nil {
-			return err
+			return boxPublicSummary{}, err
 		}
 
 		for uid, seqno := range partialTable {
@@ -196,21 +197,19 @@ func retrieveAndVerifySigchainSummary(mctx libkb.MetaContext, team *Team) error 
 			// Removing and readding someone would cause a rotate
 			_, ok := table[uid]
 			if ok {
-				return fmt.Errorf("got more than one box for %s in the same generation", uid)
+				return boxPublicSummary{}, fmt.Errorf("got more than one box for %s in the same generation", uid)
 			}
 
 			table[uid] = seqno
 		}
 	}
 
-	type boxPublicSummaryTable map[keybase1.UID]keybase1.Seqno
+	summary, err := newBoxPublicSummaryFromTable(table)
+	if err != nil {
+		return boxPublicSummary{}, err
+	}
 
-	// type boxPublicSummary struct {
-	// 	table   boxPublicSummaryTable
-	// 	encoded []byte
-	// }
-
-	return nil
+	return *summary, nil
 }
 
 func unmarshalAndVerifyBatch(batch summaryAuditBatch, expectedHash string) (boxPublicSummaryTable, error) {
