@@ -3329,7 +3329,7 @@ func (cr *ConflictResolver) recordFinishResolve(
 		thisCR.ErrorString = fmt.Sprintf("%+v", receivedErr)
 	}
 	if panicVar != nil {
-		thisCR.PanicString = fmt.Sprintf("panic(%s). stack: %b", panicVar,
+		thisCR.PanicString = fmt.Sprintf("panic(%s). stack: %s", panicVar,
 			debug.Stack())
 	}
 
