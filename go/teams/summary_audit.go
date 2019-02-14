@@ -19,25 +19,29 @@ import (
 const SummaryAuditVersion = 1
 
 type SummaryAuditor struct {
+	// TODO RM
 	i int
 }
 
 type SummaryAuditStatus int
 
 const (
-	OKNoOp SummaryAuditStatus = iota
-	OKRotated
+	OKVerified SummaryAuditStatus = iota
 	OKNotAttempted
-	WillRetry
-	Fatal
+	FailureWillRotate
+	FailureRetryable
+	FailureMaliciousServer
+	FailureRetryAttemptsExhausted
 )
 
-type ErrorSecurityInterpretation int
+func (s SummaryAuditStatus) OK() bool {
+	return s == OKVerified || s == OKNotAttempted
+}
 
-const (
-	Retryable ErrorSecurityInterpretation = iota
-	MaliciousServer
-)
+func (s SummaryAuditStatus) Fatal() bool {
+	// should use enum... could forget
+	return s == FailureMaliciousServer || s == FailureRetryAttemptsExhausted
+}
 
 type AuditResult struct {
 	Status SummaryAuditStatus
@@ -45,18 +49,14 @@ type AuditResult struct {
 
 const SummaryAuditorTag = "SUMAUD"
 
-func (a *SummaryAuditor) ShouldAudit(mctx libkb.MetaContext, team Team) (bool, error) {
-	return team.isAdminOrOwner(mctx.CurrentUserVersion())
-}
-
-// Map of UV <-> Seqno of current PUK
-type Summary = map[keybase1.UserVersion]keybase1.Seqno
-
-func (a *SummaryAuditor) Audit(mctx libkb.MetaContext, teamID keybase1.TeamID, isPublic bool) (result AuditResult, err error) {
+func (a *SummaryAuditor) Audit(mctx libkb.MetaContext, teamID keybase1.TeamID) (result AuditResult, err error) {
+	// what if its open/public team?
 	mctx = mctx.WithLogTag(SummaryAuditorTag)
 
 	team, err := Load(context.TODO(), mctx.G(), keybase1.LoadTeamArg{
-		ID: teamID,
+		ID:          teamID,
+		ForceRepoll: true,
+		// TODO other opts?0
 	})
 	if err != nil {
 		return AuditResult{}, err
@@ -87,7 +87,16 @@ func (a *SummaryAuditor) Audit(mctx libkb.MetaContext, teamID keybase1.TeamID, i
 		return AuditResult{}, fmt.Errorf("box summary hash mismatch")
 	}
 
-	return AuditResult{Status: OKNoOp}, nil
+	return AuditResult{Status: OKVerified}, nil
+}
+
+func (a *SummaryAuditor) ShouldAudit(mctx libkb.MetaContext, team Team) (bool, error) {
+	role, err := team.MemberRole(mctx.Ctx(), mctx.CurrentUserVersion())
+	if err != nil {
+		return false, err
+	}
+
+	return role.IsOrAbove(keybase1.TeamRole_WRITER), nil
 }
 
 func calculateExpectedSummary(mctx libkb.MetaContext, team *Team) (boxPublicSummary, error) {
@@ -111,6 +120,8 @@ func calculateExpectedSummary(mctx libkb.MetaContext, team *Team) (boxPublicSumm
 		}
 		return nil
 	}
+
+	// DRYify
 	err = add(members.Owners)
 	if err != nil {
 		return boxPublicSummary{}, err
