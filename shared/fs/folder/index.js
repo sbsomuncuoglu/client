@@ -36,7 +36,9 @@ class Files extends React.PureComponent<FolderProps> {
           <Kb.Icon type="icon-access-denied-266" />
         </Kb.Box2>
       </Kb.Box2>
-    ) : this.renderContent()
+    ) : (
+      this.renderContent()
+    )
     return (
       <Kb.BoxGrow>
         <Kb.Box2 direction="vertical" fullWidth={true} fullHeight={true}>
