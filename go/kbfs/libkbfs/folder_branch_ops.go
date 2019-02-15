@@ -359,14 +359,14 @@ type folderBranchOps struct {
 
 	cancelEditsLock sync.Mutex
 	// Cancels the goroutine currently waiting on edits
-	cancelEdits context.CancelFunc
+	cancelEdits       context.CancelFunc
+	launchEditMonitor sync.Once
 
 	branchChanges      kbfssync.RepeatedWaitGroup
 	mdFlushes          kbfssync.RepeatedWaitGroup
 	forcedFastForwards kbfssync.RepeatedWaitGroup
 	editActivity       kbfssync.RepeatedWaitGroup
 	partialSyncs       kbfssync.RepeatedWaitGroup
-	launchEditMonitor  sync.Once
 
 	muLastGetHead sync.Mutex
 	// We record a timestamp everytime getHead or getTrustedHead is called, and
@@ -770,6 +770,9 @@ func (fbo *folderBranchOps) startMonitorChat(tlfName tlf.CanonicalName) {
 	if fbo.bType != standard || !fbo.config.Mode().TLFEditHistoryEnabled() {
 		return
 	}
+
+	fbo.cancelEditsLock.Lock()
+	defer fbo.cancelEditsLock.Unlock()
 
 	fbo.launchEditMonitor.Do(func() {
 		// The first event should initialize all the data.
@@ -7947,6 +7950,7 @@ func (fbo *folderBranchOps) ClearPrivateFolderMD(ctx context.Context) {
 			fbo.cancelEdits = nil
 		}
 		fbo.editHistory = kbfsedits.NewTlfHistory()
+		fbo.launchEditMonitor = sync.Once{}
 		fbo.convLock.Lock()
 		defer fbo.convLock.Unlock()
 		fbo.convID = nil
