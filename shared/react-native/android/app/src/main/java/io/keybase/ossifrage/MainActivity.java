@@ -12,8 +12,11 @@ import android.view.KeyEvent;
 import android.view.Window;
 
 import com.facebook.react.ReactActivity;
+import com.facebook.react.ReactActivityDelegate;
 import com.facebook.react.ReactInstanceManager;
+import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.ReactContext;
+import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.facebook.react.modules.core.PermissionListener;
 
@@ -25,6 +28,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.util.ArrayList;
 
+import io.keybase.ossifrage.modules.KeybaseEngine;
 import io.keybase.ossifrage.modules.NativeLogger;
 import io.keybase.ossifrage.util.ContactsPermissionsWrapper;
 import io.keybase.ossifrage.util.DNSNSFetcher;
@@ -56,20 +60,24 @@ public class MainActivity extends ReactActivity {
         }
     }
 
+    private ReactContext getReactContext() {
+        ReactInstanceManager instanceManager = getReactInstanceManager();
+        if (instanceManager == null) return null;
+
+        return instanceManager.getCurrentReactContext();
+    }
+
     private void handleNotificationIntent(Intent intent) {
         Bundle bundle = intent.getExtras();
         if (bundle == null || !bundle.containsKey("notification")) return;
 
-        ReactInstanceManager instanceManager = getReactInstanceManager();
-        if (instanceManager != null) {
-            ReactContext currentContext = instanceManager.getCurrentReactContext();
-            if (currentContext != null) {
-                DeviceEventManagerModule.RCTDeviceEventEmitter emitter = currentContext
-                        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
-                if (emitter != null) {
-                    emitter.emit("androidIntentNotification", "");
-                }
-            }
+        ReactContext reactContext = getReactContext();
+        if (reactContext == null) return;
+
+        DeviceEventManagerModule.RCTDeviceEventEmitter emitter = reactContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
+        if (emitter != null) {
+            emitter.emit("androidIntentNotification", "");
         }
     }
 
@@ -91,7 +99,16 @@ public class MainActivity extends ReactActivity {
         String sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
         if (sharedText == null) return;
 
-        // Do something with the intent data.
+        ReactContext reactContext = getReactContext();
+        if (reactContext == null) return;
+
+        WritableMap evt = Arguments.createMap();
+        evt.putString("text", sharedText);
+        DeviceEventManagerModule.RCTDeviceEventEmitter emitter = reactContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class);
+        if (emitter != null) {
+            emitter.emit("onShareText", evt);
+        }
     }
 
     @Override
@@ -185,4 +202,5 @@ public class MainActivity extends ReactActivity {
     protected String getMainComponentName() {
         return "Keybase";
     }
+
 }
