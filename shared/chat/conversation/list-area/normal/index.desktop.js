@@ -44,7 +44,7 @@ class Thread extends React.PureComponent<Props, State> {
   // When we're triggering scrolling we don't want our event subscribers to fire so we increment this value
   _ignoreScrollToBottomRefCount = 0
   // last height we saw from resize
-  _scrollHeight = 0
+  _scrollHeight: number = 0
 
   _scrollToBottom = () => {
     const list = this._listRef.current
@@ -66,6 +66,7 @@ class Thread extends React.PureComponent<Props, State> {
     const list = this._listRef.current
     if (list) {
       list.scrollTop -= list.clientHeight
+      this.setState(p => (p.isLockedToBottom ? {isLockedToBottom: false} : null))
     }
   }
 
@@ -135,8 +136,8 @@ class Thread extends React.PureComponent<Props, State> {
       // maintain scroll to bottom?
       this._scrollToBottom()
     } else if (this.props.messageOrdinals.size !== prevProps.messageOrdinals.size) {
-      // someone else sent something? then ignore next resize resize
-      this._scrollHeight = null
+      // someone else sent something? then ignore next resize
+      this._scrollHeight = 0
     }
 
     if (list && this.props.editingOrdinal && this.props.editingOrdinal !== prevProps.editingOrdinal) {
