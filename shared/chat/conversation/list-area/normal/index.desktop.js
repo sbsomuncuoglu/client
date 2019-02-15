@@ -62,7 +62,6 @@ class Thread extends React.PureComponent<Props, State> {
     const list = this._listRef.current
     if (list) {
       list.scrollTop -= list.clientHeight
-      this.setState(p => (p.isLockedToBottom ? {isLockedToBottom: false} : null))
     }
   }
 
