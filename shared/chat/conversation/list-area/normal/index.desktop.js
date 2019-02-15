@@ -41,16 +41,12 @@ class Thread extends React.PureComponent<Props, State> {
   _pointerWrapperRef = React.createRef()
   // Not a state so we don't rerender, just mutate the dom
   _isScrolling = false
-  // When we're triggering scrolling we don't want our event subscribers to fire so we increment this value
-  _ignoreScrollToBottomRefCount = 0
   // last height we saw from resize
   _scrollHeight: number = 0
 
   _scrollToBottom = () => {
     const list = this._listRef.current
     if (list) {
-      // ignore callbacks due to this change
-      this._ignoreScrollToBottomRefCount++
       list.scrollTop = list.scrollHeight - list.clientHeight
     }
   }
@@ -169,10 +165,6 @@ class Thread extends React.PureComponent<Props, State> {
 
   _onScroll = e => {
     this._checkForLoadMoreThrottled()
-    if (this._ignoreScrollToBottomRefCount > 0) {
-      this._ignoreScrollToBottomRefCount--
-      return
-    }
     this._onScrollThrottled()
   }
 
@@ -310,7 +302,6 @@ class Thread extends React.PureComponent<Props, State> {
       // if the size changes adjust our scrolltop
       const list = this._listRef.current
       if (list) {
-        this._ignoreScrollToBottomRefCount++
         if (this.state.isLockedToBottom) {
           list.scrollTop = list.scrollTop + scroll.height - list.clientHeight
         } else {
