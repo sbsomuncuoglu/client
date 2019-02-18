@@ -6,6 +6,7 @@ package libkbfs
 
 import (
 	"container/heap"
+	lru "github.com/hashicorp/golang-lru"
 	"io"
 	"reflect"
 	"sync"
@@ -140,7 +141,7 @@ type blockRetrievalQueue struct {
 	prefetcher Prefetcher
 
 	prefetchStatusLock    sync.Mutex
-	prefetchStatusForTest map[kbfsblock.ID]PrefetchStatus
+	prefetchStatusForTest *lru.Cache
 }
 
 var _ BlockRetriever = (*blockRetrievalQueue)(nil)
@@ -266,41 +267,55 @@ func (brq *blockRetrievalQueue) notifyWorker(priority int) {
 	brq.sendWork(workerCh)
 }
 
-func (brq *blockRetrievalQueue) initPrefetchStatusCacheLocked() {
+func (brq *blockRetrievalQueue) initPrefetchStatusCacheLocked() error {
 	if brq.prefetchStatusForTest != nil {
-		return
+		return nil
 	}
 	if !brq.config.IsTestMode() && brq.config.Mode().Type() != InitSingleOp {
 		// If the disk block cache directory can't be accessed due to
 		// permission errors (happens sometimes on iOS for some
 		// reason), we might need to rely on this in-memory map.
-		// TODO(KBFS-3750): make it an LRU cache.
 		brq.log.Warning("No disk block cache is initialized when not testing")
 	}
 	brq.log.CDebugf(nil, "Using a local cache for prefetch status")
-	brq.prefetchStatusForTest = make(map[kbfsblock.ID]PrefetchStatus)
+	// TODO: choose a value for this size
+	var err error
+	brq.prefetchStatusForTest, err = lru.New(1000)
+	return err
 }
 
 func (brq *blockRetrievalQueue) getPrefetchStatus(
-	id kbfsblock.ID) PrefetchStatus {
+	id kbfsblock.ID) (PrefetchStatus, error) {
 	brq.prefetchStatusLock.Lock()
 	defer brq.prefetchStatusLock.Unlock()
 	if brq.prefetchStatusForTest == nil {
-		brq.initPrefetchStatusCacheLocked()
+		err := brq.initPrefetchStatusCacheLocked()
+		if err != nil {
+			return NoPrefetch, err
+		}
 	}
-	return brq.prefetchStatusForTest[id]
+	status, ok := brq.prefetchStatusForTest.Get(id)
+	if !ok {
+		return NoPrefetch, nil
+	}
+	return status.(PrefetchStatus), nil
 }
 
 func (brq *blockRetrievalQueue) setPrefetchStatus(
-	id kbfsblock.ID, prefetchStatus PrefetchStatus) {
+	id kbfsblock.ID, prefetchStatus PrefetchStatus) error {
 	brq.prefetchStatusLock.Lock()
 	defer brq.prefetchStatusLock.Unlock()
 	if brq.prefetchStatusForTest == nil {
-		brq.initPrefetchStatusCacheLocked()
+		err := brq.initPrefetchStatusCacheLocked()
+		if err != nil {
+			return err
+		}
 	}
-	if prefetchStatus > brq.prefetchStatusForTest[id] {
-		brq.prefetchStatusForTest[id] = prefetchStatus
+	status, ok := brq.prefetchStatusForTest.Get(id)
+	if !ok || prefetchStatus > status.(PrefetchStatus) {
+		brq.prefetchStatusForTest.Add(id, prefetchStatus)
 	}
+	return nil
 }
 
 // PutInCaches implements the BlockRetriever interface for
@@ -318,8 +333,7 @@ func (brq *blockRetrievalQueue) PutInCaches(ctx context.Context,
 	}
 	dbc := brq.config.DiskBlockCache()
 	if dbc == nil {
-		brq.setPrefetchStatus(ptr.ID, prefetchStatus)
-		return nil
+		return brq.setPrefetchStatus(ptr.ID, prefetchStatus)
 	}
 	err = dbc.UpdateMetadata(ctx, tlfID, ptr.ID, prefetchStatus, cacheType)
 	switch errors.Cause(err).(type) {
@@ -347,7 +361,7 @@ func (brq *blockRetrievalQueue) checkCaches(ctx context.Context,
 	if err == nil {
 		if dbc == nil {
 			block.Set(cachedBlock)
-			return brq.getPrefetchStatus(ptr.ID), nil
+			return brq.getPrefetchStatus(ptr.ID)
 		}
 
 		prefetchStatus, err := dbc.GetPrefetchStatus(
